@@ -1,0 +1,94 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kafedralar Jadvali</title>
+    <link rel="stylesheet" href="{% static 'css/main_admin.css' %}">
+
+</head>
+<body>
+    <header>
+        <div class="logo">
+            <img src="logo.png" alt="Logo">
+        </div> 
+        <div class="account">
+            <div class="account-name">
+                <img src="user.png" alt="User">
+                <span>{{request.user.first_name}}</span>
+            </div>
+            <div class="dropdown-content">
+                <a href="{% url 'logout' %}">Chiqish</a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Table Section -->
+    <table>
+        <thead>
+            <tr>
+                <th>Kafedra nomi</th>
+                <th>FISh</th>
+                <th>Ilmiy darajasi</th>
+                <th>Shtat birligi</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for user in users %}
+            <tr>
+                <td></td>  <!-- Change based on the data you want to display -->
+                <td><a href="{% url 'view_name' user.username %}">{{ user.username }}</a></td><!-- Change based on the data you want to display -->
+                <td>{{ user.email }}</td> <!-- Change this based on user fields -->
+                <td>1.0</td>
+                <td>
+                    <div class="action-icons">
+                        <img src="teacher-icon.png" alt="O'qituvchi sahifasi" title="O'qituvchi sahifasi" onclick="goToTeacherPage('{{ user.username }}')">
+                        <span class="action-status" onclick="showPopup(this, '{{ user.username }} qo\'shgan nimadir')">1</span>
+                        <img src="delete-icon.png" alt="O'chirish" title="O'chirish" onclick="deleteRow(this)">
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- Popup Container -->
+    <div id="popup" class="popup">
+        <button class="close-btn" onclick="closePopup()">X</button>
+        <p id="popup-content"></p>
+    </div>
+
+    <script>
+        // Show the popup with the information
+        function showPopup(element, message) {
+            var popup = document.getElementById('popup');
+            var popupContent = document.getElementById('popup-content');
+            popupContent.textContent = message;
+
+            // Position the popup near the clicked status
+            var rect = element.getBoundingClientRect();
+            popup.style.top = rect.top + window.scrollY + 30 + 'px';
+            popup.style.left = rect.left + 'px';
+            popup.style.display = 'block';
+        }
+
+        // Close the popup
+        function closePopup() {
+            document.getElementById('popup').style.display = 'none';
+        }
+
+        // Redirect to teacher page
+        function goToTeacherPage(username) {
+            window.location.href = '/teacher/' + username;
+        }
+
+        // Delete the row
+        function deleteRow(element) {
+            var row = element.closest('tr');
+            row.parentNode.removeChild(row);
+        }
+    </script>
+</body>
+</html>
