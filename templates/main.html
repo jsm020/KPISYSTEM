@@ -11,11 +11,11 @@
 <body>
     <header>
         <div class="logo">
-            <img src="logo.png" alt="Logo">
+            <img src="{% static 'images/KPI_logo.png' %}" alt="Logo">
         </div> 
         <div class="account">
             <div class="account-name">
-                <img src="user.png" alt="User">
+                <img src="{% static 'images/1.png' %}" alt="User">
                 <span>{{request.user.first_name}}</span>
             </div>
             <div class="dropdown-content">
@@ -36,22 +36,53 @@
             </tr>
         </thead>
         <tbody>
-            {% for user in users %}
+            {% for data in user_data %}
             <tr>
                 <td></td>  <!-- Change based on the data you want to display -->
-                <td><a href="{% url 'view_name' user.username %}">{{ user.username }}</a></td><!-- Change based on the data you want to display -->
-                <td>{{ user.email }}</td> <!-- Change this based on user fields -->
+                <td><a href="{% url 'view_name' data.user.username %}">{{ data.user.username }}</a></td> <!-- Change based on the data you want to display -->
+                <td>{{ data.user.email }}</td> <!-- Change this based on user fields -->
                 <td>1.0</td>
                 <td>
                     <div class="action-icons">
-                        <img src="teacher-icon.png" alt="O'qituvchi sahifasi" title="O'qituvchi sahifasi" onclick="goToTeacherPage('{{ user.username }}')">
-                        <span class="action-status" onclick="showPopup(this, '{{ user.username }} qo\'shgan nimadir')">1</span>
-                        <img src="delete-icon.png" alt="O'chirish" title="O'chirish" onclick="deleteRow(this)">
+                        <span class="action-simport requests
+import json
+
+# API ma'lumotlari
+base_url = "https://student.samdukf.uz/rest/v1/data/student-list?page={}"
+max_page = 128
+token = "YOUR_TOKEN_HERE"  # Bu yerda tokeningizni kiritasiz
+headers = {
+    "Authorization": f"Bearer {token}"
+}
+all_data = []
+
+# Har bir sahifadan ma'lumotlarni yig'ish
+for page in range(1, max_page + 1):
+    url = base_url.format(page)
+    response = requests.get(url, headers=headers)  # Tokenni headers orqali yuborish
+    
+    if response.status_code == 200:
+        data = response.json()  # API'dan kelgan JSON'ni olamiz
+        items = data.get("data", {}).get("items", [])  # 'items' qismini olamiz
+        all_data.extend(items)  # 'items' ro'yxatini umumiy ro'yxatga qo'shamiz
+    else:
+        print(f"Page {page} ga ulanishda xatolik: {response.status_code}")
+
+# Natijani JSON faylga yozish
+with open("student_data.json", "w") as json_file:
+    json.dump(all_data, json_file, indent=4)
+
+print(f"Yig'ilgan ma'lumotlar 'student_data.json' fayliga saqlandi.")
+tatus" 
+                              onclick="showPopup(this, '{{ data.user.username }} qo\'shgan nimadir')">
+                              {{ data.none_count }}
+                        </span>
                     </div>
                 </td>
             </tr>
             {% endfor %}
         </tbody>
+        
     </table>
 
     <!-- Popup Container -->
@@ -77,11 +108,6 @@
         // Close the popup
         function closePopup() {
             document.getElementById('popup').style.display = 'none';
-        }
-
-        // Redirect to teacher page
-        function goToTeacherPage(username) {
-            window.location.href = '/teacher/' + username;
         }
 
         // Delete the row

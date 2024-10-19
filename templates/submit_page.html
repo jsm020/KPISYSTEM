@@ -14,13 +14,12 @@
 
 <nav class="navbar navbar-expand-lg navbar-dark">
     <div class="container-fluid">
-        <a class="navbar-brand" href="#">
-            <img src="https://via.placeholder.com/50" alt="Logo" width="50" height="50" class="d-inline-block align-top">
+        <a class="navbar-brand">
+            <img src="{% static 'images/KPI_logo.png' %}" alt="Logo" width="50" height="50" class="d-inline-block align-top">
             KPI Tizimi
         </a>
-
         <div class="ml-auto">
-                <img src="https://via.placeholder.com/40" class="profile-image" alt="Foydalanuvchi">
+                <img src="{% static 'images/1.png' %}" class="profile-image" alt="Foydalanuvchi">
                 <!-- Foydalanuvchining first_name va last_name ko'rsatiladi -->
                 {{ last_name }} {{ name }}
         </div>
@@ -50,11 +49,37 @@
                         </div>
                     </div>
                     <div class="text-right">
+                        <button type="button" class="btn-icon" data-toggle="modal" data-target="#inputModal1">
+                            <i class="fas fa-file-upload"></i>
+                        </button>
                         <button type="button" class="btn-icon" data-toggle="modal" data-target="#commentModal1">
                             <i class="fas fa-comments"></i>
                         </button>
                     </div>
                 </div>                     
+            </div>
+            <div class="modal fade" id="inputModal1" tabindex="-1" role="dialog" aria-labelledby="inputModalLabel1" aria-hidden="true">
+                <div class="modal-dialog" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="inputModalLabel1">Ma'lumot kiritish</h5>
+                            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                <span aria-hidden="true">&times;</span>
+                            </button>
+                        </div>
+                        <form method="POST">
+                            <div class="modal-body">
+                                {% csrf_token %}
+                                {{ form_fvk.as_p }}
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-dismiss="modal">Bekor qilish</button>
+                                <button type="submit" class="btn btn-primary" name="fvk_form_submit">Saqlash</button>
+                            </div>
+                        </form>
+                        
+                    </div>
+                </div>
             </div>
             <!-- Pop-up oyna Izohlarni ko'rish uchun -->
             <div class="modal fade" id="commentModal1" tabindex="-1" role="dialog" aria-labelledby="commentModalLabel1" aria-hidden="true">

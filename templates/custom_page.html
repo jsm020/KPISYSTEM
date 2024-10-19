@@ -14,8 +14,8 @@
 
 <nav class="navbar navbar-expand-lg navbar-dark">
     <div class="container-fluid">
-        <a class="navbar-brand" href="#">
-            <img src="https://via.placeholder.com/50" alt="Logo" width="50" height="50" class="d-inline-block align-top">
+        <a class="navbar-brand">
+            <img src="{% static 'images/KPI_logo.png' %}" alt="Logo" width="50" height="50" class="d-inline-block align-top">
             KPI Tizimi
         </a>
 
@@ -23,7 +23,7 @@
             <ul class="navbar-nav">
                 <li class="nav-item dropdown">
                     <a class="nav-link dropdown-toggle d-flex align-items-center" href="#" id="navbarDropdown" role="button" data-toggle="dropdown" aria-expanded="false">
-                        <img src="https://via.placeholder.com/40" class="profile-image" alt="Foydalanuvchi">
+                        <img src="{% static 'images/1.png' %}" class="profile-image" alt="Foydalanuvchi">
                         <!-- Foydalanuvchining first_name va last_name ko'rsatiladi -->
                         {{ request.user.first_name }} {{ request.user.last_name }}
                     </a>

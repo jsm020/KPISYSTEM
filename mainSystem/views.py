@@ -10,6 +10,8 @@ from django.contrib import messages
 from django.http import HttpResponse, HttpResponseForbidden
 from django.shortcuts import get_object_or_404
 from django.apps import apps
+from django.db.models import Q
+
 def calculate_progress(queryset, max_score):
     """
     Helper function to calculate total score and progress percentage.
@@ -569,12 +571,60 @@ def is_admin(view_func):
     return wrapper
 
 @is_admin
+
 def kafedralar_jadvali(request):
-    users = User.objects.all()  # Fetch all users
+    users = User.objects.all()
+    user_data = []
+
+    for user in users:
+        total_none_count = 0  # Keep track of the total count of missing scores
+
+        # Define the models and check if scores are None
+        model_checks = [
+            ScopusWebOfScience.objects.filter(user=user, score__isnull=True),
+            OAKJurnaliMaqola.objects.filter(user=user, score__isnull=True),
+            HIndex.objects.filter(user=user, score__isnull=True),
+            KonferensiyaMaqola.objects.filter(user=user, score__isnull=True),
+            LoyihalarTayyorlash.objects.filter(user=user, score__isnull=True),
+            LoyihaMoliya.objects.filter(user=user, score__isnull=True),
+            AKTDasturlar.objects.filter(user=user, score__isnull=True),
+            TalabaIlmiyFaoliyati.objects.filter(user=user, score__isnull=True),
+            TarbiyaTadbirlar.objects.filter(user=user, score__isnull=True),
+            DarstanTashqariTadbirlar.objects.filter(user=user, score__isnull=True),
+            TalabalarTurarJoyTadbirlar.objects.filter(user=user, score__isnull=True),
+            OtaOnalarIshlash.objects.filter(user=user, score__isnull=True),
+            AxborotMurobbiylikSoat.objects.filter(user=user, score__isnull=True),
+            MuhimTashabbuslarIshlari.objects.filter(user=user, score__isnull=True),
+            BirZiyoliBirMahalla.objects.filter(user=user, score__isnull=True),
+            OquvYiliFanlar.objects.filter(user=user, score__isnull=True),
+            MustaqilTalimTopshiriqlari.objects.filter(user=user, score__isnull=True),
+            FanVideoKontent.objects.filter(user=user, score__isnull=True),
+            OqitishSifati.objects.filter(user=user, score__isnull=True),
+            NashrEtilganDarsliklar.objects.filter(user=user, score__isnull=True),
+            FaolInterfaolMetodlar.objects.filter(user=user, score__isnull=True),
+            DarslikYokiQollanma.objects.filter(user=user, score__isnull=True),
+            DissertationHimoya.objects.filter(user=user, score__isnull=True),
+            IlmiyRahbarlik.objects.filter(user=user, score__isnull=True),
+            HorijdaMalakaOshirish.objects.filter(user=user, score__isnull=True),
+        ]
+
+        # Loop through each model and count the `None` scores
+        for queryset in model_checks:
+            total_none_count += queryset.count()
+
+        # Append the data for each user to the user_data list
+        user_data.append({
+            'user': user,
+            'none_count': total_none_count,
+        })
+
+    # Add the user_data to context and render it to the template
     context = {
-        'users': users
+        'user_data': user_data
     }
+
     return render(request, 'main.html', context)
+
 def view_name(request, username):
     selected_user = get_object_or_404(User, username=username)
     scopus_maqolalar = ScopusWebOfScience.objects.filter(user=selected_user)
