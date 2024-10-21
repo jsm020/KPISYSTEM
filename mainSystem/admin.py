@@ -9,3 +9,4 @@ admin.site.register([OquvYiliFanlar,FaolInterfaolMetodlar,MustaqilTalimTopshiriq
 admin.site.register([ScopusWebOfScience,OAKJurnaliMaqola,HIndex,KonferensiyaMaqola,LoyihalarTayyorlash,LoyihaMoliya,AKTDasturlar,TalabaIlmiyFaoliyati])
 admin.site.register([TarbiyaTadbirlar,DarstanTashqariTadbirlar,TalabalarTurarJoyTadbirlar,OtaOnalarIshlash,AxborotMurobbiylikSoat,MuhimTashabbuslarIshlari,BirZiyoliBirMahalla])
 admin.site.register([DarslikYokiQollanma,DissertationHimoya,IlmiyRahbarlik,HorijdaMalakaOshirish])
+admin.site.register(MaxScore)

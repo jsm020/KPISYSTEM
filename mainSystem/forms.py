@@ -1,24 +1,24 @@
 from django import forms
 from .models import *
+from django.core.exceptions import ValidationError
 
 class FanVideoKontentForm(forms.ModelForm):
     class Meta:
         model = FanVideoKontent
-        fields = ['link', 'izoh', 'score']
+        fields = ['link','score', 'izoh']  # Superuserlar uchun barcha maydonlar
         widgets = {
             'link': forms.URLInput(attrs={'class': 'form-control', 'id': 'linkInput1', 'placeholder': 'Linkni kiriting'}),
             'izoh': forms.Textarea(attrs={'class': 'form-control', 'id': 'commentInput1', 'rows': 3, 'placeholder': 'Izoh kiriting'}),
-            'score': forms.NumberInput(attrs={'class': 'form-control', 'id': 'scoreInput1', 'placeholder': 'Baholashni kiriting'}),
+            'score': forms.NumberInput(attrs={'class': 'form-control', 'id': 'scoreInput1', 'placeholder': 'Baholash'}),
         }
 
     def __init__(self, *args, **kwargs):
         user = kwargs.pop('user', None)  # Foydalanuvchini olish
         super(FanVideoKontentForm, self).__init__(*args, **kwargs)
         
-        # Agar foydalanuvchi superuser bo'lmasa, 'score' maydoni olib tashlanadi
+        # Agar foydalanuvchi superuser bo'lmasa, 'score' maydonini olib tashlang
         if user and not user.is_superuser:
             self.fields.pop('score')
-
 class NashrEtilganDarsliklarForm(forms.ModelForm):
     class Meta:
         model = NashrEtilganDarsliklar

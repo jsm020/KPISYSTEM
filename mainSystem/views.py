@@ -11,6 +11,10 @@ from django.http import HttpResponse, HttpResponseForbidden
 from django.shortcuts import get_object_or_404
 from django.apps import apps
 from django.db.models import Q
+from django.shortcuts import redirect
+from django.core.exceptions import PermissionDenied
+from functools import wraps
+from django.shortcuts import redirect
 
 def calculate_progress(queryset, max_score):
     """
@@ -21,15 +25,35 @@ def calculate_progress(queryset, max_score):
     return total_score, progress_percent
 
 
+
+
+def not_superuser(view_func):
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        if request.user.is_superuser:
+            # Agar superuser bo'lsa, admin sahifasiga yo'naltirish
+            return redirect('/admin')
+        return view_func(request, *args, **kwargs)
+    return wrapper
+
+
+
 @login_required
+@not_superuser
+
 def all_data_view(request):
     if request.method == 'POST' and 'fvk_form_submit' in request.POST:
         form_fvk = FanVideoKontentForm(request.POST, user=request.user)
         if form_fvk.is_valid():
-            maqola_instance = form_fvk.save(commit=False)
-            maqola_instance.user = request.user
-            maqola_instance.save()
-            return redirect('home')
+            try:
+                maqola_instance = form_fvk.save(commit=False)
+                maqola_instance.user = request.user
+                maqola_instance.save()
+                return redirect('home')
+            except ValidationError as e:
+                # Catch the validation error and display it on a new page
+                error_message = e.messages[0]  # Access the actual error message
+                return render(request, 'error_template.html', {'error_message': error_message})
     else:
         form_fvk = FanVideoKontentForm(user=request.user)
 
@@ -567,13 +591,12 @@ def is_admin(view_func):
         if request.user.is_superuser:  # Foydalanuvchi superuser ekanligini tekshirish
             return view_func(request, *args, **kwargs)
         else:
-            return HttpResponseForbidden("Sizda ushbu sahifaga kirish uchun huquq yo'q.")  # Kirish taqiqlangan
+            return render(request, 'error_template.html', {'error_message': "Sizda ushbu sahifaga kirish uchun huquq yo'q."})  # Kirish taqiqlangan
     return wrapper
-
 @is_admin
-
 def kafedralar_jadvali(request):
-    users = User.objects.all()
+    # Superuser bo'lmagan foydalanuvchilarni filtrlaymiz
+    users = User.objects.filter(is_superuser=False)
     user_data = []
 
     for user in users:
@@ -625,8 +648,11 @@ def kafedralar_jadvali(request):
 
     return render(request, 'main.html', context)
 
+@is_admin
 def view_name(request, username):
     selected_user = get_object_or_404(User, username=username)
+    if selected_user.is_superuser:
+            return render(request, 'error_template.html', {'error_message': "Adminlarga bu sahifaga kirish yo'q"})
     scopus_maqolalar = ScopusWebOfScience.objects.filter(user=selected_user)
     oak_maqolalar = OAKJurnaliMaqola.objects.filter(user=selected_user)
     h_index = HIndex.objects.filter(user=selected_user)
@@ -770,88 +796,89 @@ def view_name(request, username):
 
     return render(request, 'submit_page.html', context)
 
-
-def update_score_generic(request, submit_button_name, model_name, redirect_view_name):
+@is_admin
+def update_score_generic(request, submit_button_name, model_name, redirect_view_name, username):
     if request.method == 'POST' and submit_button_name in request.POST:
         item_id = request.POST.get('item_id')
         score = request.POST.get('score')
-        izoh = request.POST.get('izoh')  # Izoh maydonini olish
+        izoh = request.POST.get('izoh')  # Retrieve the 'izoh' field
         
-        # Dinamik tarzda model klassini olish
         try:
-            model_class = apps.get_model('mainSystem', model_name)  # 'your_app_name' ni to'g'ri dastur nomi bilan almashtiring
-            item = model_class.objects.get(id=item_id)
-            print(item.score)
+            model_class = apps.get_model('mainSystem', model_name)  # Replace with the correct app name
+            item = get_object_or_404(model_class, id=item_id)
             
-            # Agar foydalanuvchi allaqachon bir marta yangilagan bo'lsa, qaytish
-            if item.score is not None:  
-                return HttpResponse(f"Siz bu ob'ekt uchun allaqachon score yoki izohni o'zgartirgansiz.", status=403)
+            # Prevent multiple updates if the score has already been set
+            if item.score is not None:
+                return render(request, 'error_template.html', {'error_message': "Siz allaqachon bu ob'ekt uchun baho yoki izoh kiritgansiz."})
 
-            # Agar yangilanish kerak bo'lsa
+            # Apply updates if required
             if score:
                 item.score = score
             if izoh:
                 item.izoh = izoh
             
-            item.save()
-                
-            return redirect(redirect_view_name)
-        
-        except model_class.DoesNotExist:
-            return HttpResponse(f"{model_name} ID {item_id} bilan topilmadi", status=404)
-        
-        except LookupError:
-            return HttpResponse(f"Model {model_name} mavjud emas.", status=500)
-        
-    return redirect(redirect_view_name)
+            # Save the item with validation handling
+            try:
+                item.save()
+            except ValidationError as e:
+                # Render an error template with the validation error message
+                return render(request, 'error_template.html', {'error_message': e.messages[0]})
 
-def update_OquvYiliFanlar_score(request):
-    return update_score_generic(request, 'update_score_submit_oquv_yili_fanlar', 'OquvYiliFanlar', 'admin')
-def update_FaolInterfaolMetodlar_score(request):
-    return update_score_generic(request, 'update_score_submit_FaolInterfaolMetodlar', 'FaolInterfaolMetodlar', 'admin')
-def update_MustaqilTalimTopshiriqlari_score(request):
-    return update_score_generic(request, 'update_score_submit_MustaqilTalimTopshiriqlari', 'MustaqilTalimTopshiriqlari', 'admin')
-def update_FanVideoKontent_score(request):
-    return update_score_generic(request, 'update_score_submit_FanVideoKontent', 'FanVideoKontent', 'admin')
-def update_OqitishSifati_score(request):
-    return update_score_generic(request, 'update_score_submit_OqitishSifati', 'OqitishSifati', 'admin')
-def update_NashrEtilganDarsliklar(request):
-    return update_score_generic(request, 'update_score_submit_NashrEtilganDarsliklar', 'NashrEtilganDarsliklar', 'admin')
-def update_ScopusWebOfScience(request):
-    return update_score_generic(request, 'update_score_submit_ScopusWebOfScience', 'ScopusWebOfScience', 'admin')
-def update_OAKJurnaliMaqola(request):
-    return update_score_generic(request, 'update_score_submit_OAKJurnaliMaqola', 'OAKJurnaliMaqola', 'admin')
-def update_HIndex(request):
-    return update_score_generic(request, 'update_score_submit_HIndex', 'HIndex', 'admin')
-def update_KonferensiyaMaqola(request):
-    return update_score_generic(request, 'update_score_submit_KonferensiyaMaqola', 'KonferensiyaMaqola', 'admin')
-def update_LoyihalarTayyorlash(request):
-    return update_score_generic(request, 'update_score_submit_LoyihalarTayyorlash', 'LoyihalarTayyorlash', 'admin')
-def update_LoyihaMoliya(request):
-    return update_score_generic(request, 'update_score_submit_LoyihaMoliya', 'LoyihaMoliya', 'admin')
-def update_AKTDasturlar(request):
-    return update_score_generic(request, 'update_score_submit_AKTDasturlar', 'AKTDasturlar', 'admin')
-def update_TalabaIlmiyFaoliyati(request):
-    return update_score_generic(request, 'update_score_submit_TalabaIlmiyFaoliyati', 'TalabaIlmiyFaoliyati', 'admin')
-def update_TarbiyaTadbirlar(request):
-    return update_score_generic(request, 'update_score_submit_TarbiyaTadbirlar', 'TarbiyaTadbirlar', 'admin')
-def update_DarstanTashqariTadbirlar(request):
-    return update_score_generic(request, 'update_score_submit_DarstanTashqariTadbirlar', 'DarstanTashqariTadbirlar', 'admin')
-def update_TalabalarTurarJoyTadbirlar(request):
-    return update_score_generic(request, 'update_score_submit_TalabalarTurarJoyTadbirlar', 'TalabalarTurarJoyTadbirlar', 'admin')
-def update_OtaOnalarIshlash(request):
-    return update_score_generic(request, 'update_score_submit_OtaOnalarIshlash', 'OtaOnalarIshlash', 'admin')
-def update_AxborotMurobbiylikSoat(request):
-    return update_score_generic(request, 'update_score_submit_AxborotMurobbiylikSoat', 'AxborotMurobbiylikSoat', 'admin')
-def update_MuhimTashabbuslarIshlari(request):
-    return update_score_generic(request, 'update_score_submit_MuhimTashabbuslarIshlari', 'MuhimTashabbuslarIshlari', 'admin')
-def update_BirZiyoliBirMahalla(request):
-    return update_score_generic(request, 'update_score_submit_BirZiyoliBirMahalla', 'BirZiyoliBirMahalla', 'admin')
-def update_DarslikYokiQollanma(request):
-    return update_score_generic(request, 'update_score_submit_DarslikYokiQollanma', 'DarslikYokiQollanma', 'admin')
-def update_DissertationHimoya(request):
-    return update_score_generic(request, 'update_score_submit_DissertationHimoya', 'DissertationHimoya', 'admin')
-def update_IlmiyRahbarlik(request):
-    return update_score_generic(request, 'update_score_submit_IlmiyRahbarlik', 'IlmiyRahbarlik', 'admin')
-def update_HorijdaMalakaOshirish(request):
-    return update_score_generic(request, 'update_score_submit_HorijdaMalakaOshirish', 'HorijdaMalakaOshirish', 'admin')
+            # Redirect to the view with username parameter
+            return redirect(redirect_view_name, username=username)
+
+        except LookupError:
+            return HttpResponse(f"Model {model_name} does not exist.", status=500)
+
+    # If it's not a POST request, or the button name is not found, redirect with username
+    return redirect(redirect_view_name, username=username)
+def update_OquvYiliFanlar_score(request,username):
+    return update_score_generic(request, 'update_score_submit_oquv_yili_fanlar', 'OquvYiliFanlar', 'view_name', username)
+def update_FaolInterfaolMetodlar_score(request,username):
+    return update_score_generic(request, 'update_score_submit_FaolInterfaolMetodlar', 'FaolInterfaolMetodlar', 'view_name', username)
+def update_MustaqilTalimTopshiriqlari_score(request,username):
+    return update_score_generic(request, 'update_score_submit_MustaqilTalimTopshiriqlari', 'MustaqilTalimTopshiriqlari', 'view_name', username)
+def update_FanVideoKontent_score(request,username):
+    return update_score_generic(request, 'update_score_submit_FanVideoKontent', 'FanVideoKontent', 'view_name', username)
+def update_OqitishSifati_score(request,username):
+    return update_score_generic(request, 'update_score_submit_OqitishSifati', 'OqitishSifati', 'view_name', username)
+def update_NashrEtilganDarsliklar(request,username):
+    return update_score_generic(request, 'update_score_submit_NashrEtilganDarsliklar', 'NashrEtilganDarsliklar', 'view_name', username)
+def update_ScopusWebOfScience(request,username):
+    return update_score_generic(request, 'update_score_submit_ScopusWebOfScience', 'ScopusWebOfScience', 'view_name', username)
+def update_OAKJurnaliMaqola(request,username):
+    return update_score_generic(request, 'update_score_submit_OAKJurnaliMaqola', 'OAKJurnaliMaqola', 'view_name', username)
+def update_HIndex(request,username):
+    return update_score_generic(request, 'update_score_submit_HIndex', 'HIndex', 'view_name', username)
+def update_KonferensiyaMaqola(request,username):
+    return update_score_generic(request, 'update_score_submit_KonferensiyaMaqola', 'KonferensiyaMaqola', 'view_name', username)
+def update_LoyihalarTayyorlash(request,username):
+    return update_score_generic(request, 'update_score_submit_LoyihalarTayyorlash', 'LoyihalarTayyorlash', 'view_name', username)
+def update_LoyihaMoliya(request,username):
+    return update_score_generic(request, 'update_score_submit_LoyihaMoliya', 'LoyihaMoliya', 'view_name', username)
+def update_AKTDasturlar(request,username):
+    return update_score_generic(request, 'update_score_submit_AKTDasturlar', 'AKTDasturlar', 'view_name', username)
+def update_TalabaIlmiyFaoliyati(request,username):
+    return update_score_generic(request, 'update_score_submit_TalabaIlmiyFaoliyati', 'TalabaIlmiyFaoliyati', 'view_name', username)
+def update_TarbiyaTadbirlar(request,username):
+    return update_score_generic(request, 'update_score_submit_TarbiyaTadbirlar', 'TarbiyaTadbirlar', 'view_name', username)
+def update_DarstanTashqariTadbirlar(request,username):
+    return update_score_generic(request, 'update_score_submit_DarstanTashqariTadbirlar', 'DarstanTashqariTadbirlar', 'view_name', username)
+def update_TalabalarTurarJoyTadbirlar(request,username):
+    return update_score_generic(request, 'update_score_submit_TalabalarTurarJoyTadbirlar', 'TalabalarTurarJoyTadbirlar', 'view_name', username)
+def update_OtaOnalarIshlash(request,username):
+    return update_score_generic(request, 'update_score_submit_OtaOnalarIshlash', 'OtaOnalarIshlash', 'view_name', username)
+def update_AxborotMurobbiylikSoat(request,username):
+    return update_score_generic(request, 'update_score_submit_AxborotMurobbiylikSoat', 'AxborotMurobbiylikSoat', 'view_name', username)
+def update_MuhimTashabbuslarIshlari(request,username):
+    return update_score_generic(request, 'update_score_submit_MuhimTashabbuslarIshlari', 'MuhimTashabbuslarIshlari', 'view_name', username)
+def update_BirZiyoliBirMahalla(request,username):
+    return update_score_generic(request, 'update_score_submit_BirZiyoliBirMahalla', 'BirZiyoliBirMahalla', 'view_name', username)
+def update_DarslikYokiQollanma(request,username):
+    return update_score_generic(request, 'update_score_submit_DarslikYokiQollanma', 'DarslikYokiQollanma', 'view_name', username)
+def update_DissertationHimoya(request,username):
+    return update_score_generic(request, 'update_score_submit_DissertationHimoya', 'DissertationHimoya', 'view_name', username)
+def update_IlmiyRahbarlik(request,username):
+    return update_score_generic(request, 'update_score_submit_IlmiyRahbarlik', 'IlmiyRahbarlik', 'view_name', username)
+def update_HorijdaMalakaOshirish(request,username):
+    return update_score_generic(request, 'update_score_submit_HorijdaMalakaOshirish', 'HorijdaMalakaOshirish', 'view_name', username)

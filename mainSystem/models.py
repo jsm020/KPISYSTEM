@@ -2,13 +2,35 @@ from django.db import models
 from django.contrib.auth.models import User
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from django.core.validators import MaxValueValidator
+from django.core.validators import MaxValueValidator,MinValueValidator
+from django.core.exceptions import ValidationError
+from decimal import Decimal  # Import Decimal
+from django.contrib.auth.models import User
+from django.contrib.contenttypes.models import ContentType
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.core.validators import MaxValueValidator, MinValueValidator
+from django.core.exceptions import ValidationError
+from django.db import models
+from decimal import Decimal
+
+
 
 # 1. O'quv yili fanlar bo'yicha resurslar
+
+
+
 class OquvYiliFanlar(models.Model):
-    score = models.DecimalField(null=True, blank=True, verbose_name="Baholash",max_digits=2,decimal_places=1,validators=[MaxValueValidator(2.00)])
+    score = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Baholash",
+        max_digits=2,
+        decimal_places=1,
+        validators=[MaxValueValidator(2.00), MinValueValidator(0.0)]
+    )
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     izoh = models.TextField()
+    max_score = models.DecimalField(max_digits=3, decimal_places=2, default=2.00)
 
     class Meta:
         verbose_name = "O'quv yili davomida fanlar bo'yicha resurslarni HEMIS tizimiga joylashtirish"
@@ -17,11 +39,43 @@ class OquvYiliFanlar(models.Model):
     def __str__(self):
         return f"{self.user.first_name} {self.user.last_name} - O'quv yili fanlar bo'yicha resurslar"
 
+    def clean(self):
+        # Convert score to Decimal if it's a string
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score > self.max_score:
+                raise ValidationError(f"Baho {self.score} maksimal bahodan ({self.max_score}) yuqori bo'lishi mumkin emas.")
+
+    def save(self, *args, **kwargs):
+        # Subtract score from max_score before saving if it's valid
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score <= self.max_score:
+                self.max_score -= self.score
+        self.clean()  # Ensure validation is called
+        super().save(*args, **kwargs)
+
 # 2. Faol va interfaol metodlar
 class FaolInterfaolMetodlar(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
-    score = models.DecimalField(null=True, blank=True, verbose_name="Baholash",max_digits=2,decimal_places=1,validators=[MaxValueValidator(4.00)])
-    izoh = models.TextField()
+    score = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Baholash",
+        max_digits=3,  # Adjusted to accommodate values like 4.0
+        decimal_places=1,
+        validators=[MaxValueValidator(4.0), MinValueValidator(0.0)]
+    )
+    max_score = models.DecimalField(
+        max_digits=3,
+        decimal_places=1,
+        default=Decimal('4.0'),
+        verbose_name="Maksimal Baho",
+        editable=False
+    )
+    izoh = models.TextField(blank=True, null=True)  # Optional field
 
     class Meta:
         verbose_name = "Faol va interfaol metod"
@@ -29,14 +83,52 @@ class FaolInterfaolMetodlar(models.Model):
 
     def __str__(self):
         return f"{self.user.first_name} {self.user.last_name} - Faol va interfaol metodlar"
+
+    def clean(self):
+        # Convert score to Decimal if it's a string and validate
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score < 0 or self.score > self.max_score:
+                raise ValidationError(f"Baholash 0.0 va {self.max_score} oralig'ida bo'lishi kerak.")
     
+    def save(self, *args, **kwargs):
+        """
+        Custom save method to adjust max_score based on the score value
+        before saving the model instance.
+        """
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            # Subtract score from max_score if the score is within the valid range
+            if self.score <= self.max_score:
+                self.max_score -= self.score
+
+        self.clean()  # Ensure validation is called before saving
+        super().save(*args, **kwargs)
+
+
 
 
 # 3. Mustaqil ta'lim topshiriqlari
 class MustaqilTalimTopshiriqlari(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE)
-    score = models.DecimalField(null=True, blank=True, verbose_name="Baholash",max_digits=2,decimal_places=1,validators=[MaxValueValidator(4.00)])
-    izoh = models.TextField()
+    user = models.OneToOneField(User, on_delete=models.CASCADE, verbose_name="Foydalanuvchi")
+    score = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Baholash",
+        max_digits=3,  # Adjusted to accommodate values like 4.0
+        decimal_places=1,
+        validators=[MaxValueValidator(4.0), MinValueValidator(0.0)]
+    )
+    max_score = models.DecimalField(
+        max_digits=3,
+        decimal_places=1,
+        default=Decimal('4.0'),
+        verbose_name="Maksimal Baho",
+        editable=False
+    )
+    izoh = models.TextField(blank=True, null=True)  # Made optional if needed
 
     class Meta:
         verbose_name = "Mustaqil ta'lim topshiriqlari"
@@ -45,12 +137,49 @@ class MustaqilTalimTopshiriqlari(models.Model):
     def __str__(self):
         return f"{self.user.first_name} {self.user.last_name} - Mustaqil ta'lim topshiriqlari"
 
-# 4. Fan video kontent
+    def clean(self):
+        # Convert score to Decimal if it's a string and validate
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score < 0 or self.score > self.max_score:
+                raise ValidationError(f"Baholash 0.0 va {self.max_score} oralig'ida bo'lishi kerak.")
+    
+    def save(self, *args, **kwargs):
+        """
+        Custom save method to adjust max_score based on the score value
+        before saving the model instance.
+        """
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            # Subtract score from max_score if the score is within the valid range
+            if self.score <= self.max_score:
+                self.max_score -= self.score
+
+        self.clean()  # Ensure validation is called before saving
+        super().save(*args, **kwargs)
+
+
 class FanVideoKontent(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    score = models.DecimalField(null=True, blank=True, verbose_name="Baholash",max_digits=2,decimal_places=1,validators=[MaxValueValidator(8.00)])
+    score = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Baholash",
+        max_digits=3,
+        decimal_places=1,
+        validators=[MaxValueValidator(8.00), MinValueValidator(0.0)]
+    )
     link = models.URLField(verbose_name="Maqolaga havola")
-    izoh = models.TextField()
+    izoh = models.TextField(blank=True, null=True)
+    max_score_value = models.DecimalField(
+        max_digits=5,
+        decimal_places=1,
+        null=True,
+        blank=True,
+        verbose_name="Max Score Value"
+    )
 
     class Meta:
         verbose_name = "Fan video kontenti"
@@ -58,24 +187,101 @@ class FanVideoKontent(models.Model):
 
     def __str__(self):
         return f"{self.user.first_name} {self.user.last_name} - Fan video kontenti"
+
+    def clean(self):
+        # Convert score to Decimal if it's a string
+        if self.score is not None and isinstance(self.score, str):
+            self.score = Decimal(self.score)
+
+        # Ensure score does not exceed the max_score_value
+        if self.max_score_value is not None and self.score is not None:
+            if self.score > self.max_score_value:
+                raise ValidationError(
+                    f"Baho {self.score} maksimal bahodan ({self.max_score_value}) yuqori bo'lishi mumkin emas."
+                )
+
+    def save(self, *args, **kwargs):
+        # Ensure validation is called before saving
+        self.clean()
+        super().save(*args, **kwargs)
+
+
+# MaxScore Model
+class MaxScore(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    
+    # Generic foreign key fields
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    object_id = models.PositiveIntegerField()
+    score_for = GenericForeignKey('content_type', 'object_id')
+    
+    max_score = models.DecimalField(
+        max_digits=5,
+        decimal_places=1,
+        validators=[MinValueValidator(0.0)]
+    )
+
+    def __str__(self):
+        return f"Max Score: {self.max_score} for {self.score_for}"
+
+    def clean(self):
+        # Ensure that the max_score is valid (non-negative and within limits if applicable)
+        if self.max_score < 0:
+            raise ValidationError("Max score cannot be negative.")
+
+        # Additional logic can be added here for further validation
+
+    def save(self, *args, **kwargs):
+        # Ensure validation is called before saving
+        self.clean()
+        super().save(*args, **kwargs)
 class OqitishSifati(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
-    talim_sifat_xulosasi = models.DecimalField(null=True, blank=True, verbose_name="ta'lim sifatini nazorat qilish bo‘limi xulosasi bo‘yicha",max_digits=2,decimal_places=1,validators=[MaxValueValidator(3.00)])
-    talim_sifat = models.DecimalField(null=True, blank=True, verbose_name="talabalardan o‘tkazilgan so‘rovnomalar natijalari bo‘icha",max_digits=2,decimal_places=1,validators=[MaxValueValidator(3.00)])
-    score = models.DecimalField(null=True, blank=True, verbose_name="Umumiy ball", editable=False,max_digits=2,decimal_places=1,validators=[MaxValueValidator(6.00)])
-
-    izoh = models.TextField()
+    talim_sifat_xulosasi = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Ta'lim sifatini nazorat qilish bo‘limi xulosasi bo‘yicha",
+        max_digits=2,
+        decimal_places=1,
+        validators=[MaxValueValidator(3.0), MinValueValidator(0.0)]
+    )
+    talim_sifat = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Talabalardan o‘tkazilgan so‘rovnomalar natijalari bo‘yicha",
+        max_digits=2,
+        decimal_places=1,
+        validators=[MaxValueValidator(3.0), MinValueValidator(0.0)]
+    )
+    score = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Umumiy ball",
+        editable=False,
+        max_digits=3,  # Adjusted to accommodate values like 6.0
+        decimal_places=1,
+        validators=[MaxValueValidator(6.0), MinValueValidator(0.0)]
+    )
+    izoh = models.TextField(blank=True, null=True)  # Made optional if needed
 
     class Meta:
         verbose_name = "O'qitish sifati baholanishi"
         verbose_name_plural = "O'qitish sifati baholanishi"
 
+    def clean(self):
+        # Ensure talim_sifat and talim_sifat_xulosasi are valid before calculating score
+        if self.talim_sifat is not None and self.talim_sifat_xulosasi is not None:
+            total_score = self.talim_sifat + self.talim_sifat_xulosasi
+            if total_score > 6.0:
+                raise ValidationError("Umumiy ball 6.0 dan yuqori bo'lishi mumkin emas.")
+    
     def save(self, *args, **kwargs):
-        # Automatically calculate score as the sum of talim_sifat and talim_sifat_xulosasi
+        # Calculate score as the sum of talim_sifat and talim_sifat_xulosasi
         if self.talim_sifat is not None and self.talim_sifat_xulosasi is not None:
             self.score = self.talim_sifat + self.talim_sifat_xulosasi
         else:
-            self.score = 0  # Handle case where either value is None
+            self.score = Decimal('0.0')  # Handle case where either value is None
+        self.clean()  # Ensure validation is called before saving
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -88,27 +294,65 @@ class NashrEtilganDarsliklar(models.Model):
         upload_to='nashr_etilgan_darsliklar_files/',
         verbose_name="Nashr etilgan darsliklar, qo'llanmalar va uslubiy ko'rsatmalar"
     )
-    score = models.DecimalField(null=True, blank=True, verbose_name="Baholash",max_digits=2,decimal_places=1,validators=[MaxValueValidator(6.00)])
-    izoh = models.TextField()
+    score = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Baholash",
+        max_digits=3,  # Adjusted to accommodate values like 6.0
+        decimal_places=1,
+        validators=[MaxValueValidator(6.0), MinValueValidator(0.0)]
+    )
+    izoh = models.TextField(blank=True, null=True)  # Made optional if needed
 
     class Meta:
         verbose_name = "Nashr etilgan darslik"
         verbose_name_plural = "Nashr etilgan darsliklar"
 
+    def clean(self):
+        # Validate that score does not exceed max_score and is non-negative
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score < 0 or self.score > 6.0:
+                raise ValidationError("Baholash 0.0 va 6.0 oralig'ida bo'lishi kerak.")
+
+    def save(self, *args, **kwargs):
+        # Subtract score from max_score before saving if it's valid
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score <= self.max_score:
+                self.max_score -= self.score
+        self.clean()  # Ensure validation is called
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.user.first_name} {self.user.last_name} - Nashr etilgan darsliklar"
-
     #############################################################################3
 # 1. Scopus va Web of Science xalqaro jurnallarida maqola chop etganligi
 class ScopusWebOfScience(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)  # Foydalanuvchiga bog'langan
+    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name="Foydalanuvchi")  # Foydalanuvchiga bog'langan
     maqola = models.FileField(
         upload_to='scopus_web_of_science_files/',
         verbose_name="Scopus va Web of Science xalqaro jurnallarida maqola chop etganligi"
     )
     link = models.URLField(verbose_name="Maqolaga havola")
-    score = models.DecimalField(null=True, blank=True, verbose_name="Baholash",max_digits=2,decimal_places=1,validators=[MaxValueValidator(15.00)])
-    izoh = models.TextField() 
+    score = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Baholash",
+        max_digits=4,  # Adjusted to accommodate values like 15.0
+        decimal_places=1,
+        validators=[MaxValueValidator(15.0), MinValueValidator(0.0)]
+    )
+    max_score = models.DecimalField(
+        max_digits=4,
+        decimal_places=1,
+        default=Decimal('15.0'),
+        verbose_name="Maksimal Baho",
+        editable=False
+    )
+    izoh = models.TextField(blank=True, null=True)  # Made optional if needed
 
     class Meta:
         verbose_name = "Scopus va Web of Science xalqaro ilmiy-texnik bazasiga kiruvchi jurnalda maqola chop etganligi"
@@ -117,17 +361,49 @@ class ScopusWebOfScience(models.Model):
     def __str__(self):
         return f"{self.user.username} - Scopus/Web of Science maqola"
 
+    def clean(self):
+        # Validate that score does not exceed max_score and is non-negative
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score < 0 or self.score > self.max_score:
+                raise ValidationError(f"Baholash 0.0 va {self.max_score} oralig'ida bo'lishi kerak.")
+
+    def save(self, *args, **kwargs):
+        # Subtract score from max_score before saving if it's valid
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score <= self.max_score:
+                self.max_score -= self.score
+        self.clean()  # Ensure validation is called
+        super().save(*args, **kwargs)
+
 
 # 2. OAK tasarrufidagi jurnalda maqola chop etganligi
 class OAKJurnaliMaqola(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name="Foydalanuvchi")
     maqola = models.FileField(
         upload_to='oak_jurnal_maqolalar_files/',
         verbose_name="OAK tasarrufidagi jurnalda maqola chop etganligi"
     )
     link = models.URLField(verbose_name="Maqolaga havola")
-    score = models.DecimalField(null=True, blank=True, verbose_name="Baholash",max_digits=2,decimal_places=1,validators=[MaxValueValidator(5.00)])
-    izoh = models.TextField()
+    score = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Baholash",
+        max_digits=3,  # Adjusted to accommodate values like 5.0
+        decimal_places=1,
+        validators=[MaxValueValidator(5.0), MinValueValidator(0.0)]
+    )
+    max_score = models.DecimalField(
+        max_digits=3,
+        decimal_places=1,
+        default=Decimal('5.0'),
+        verbose_name="Maksimal Baho",
+        editable=False
+    )
+    izoh = models.TextField(blank=True, null=True)  # Made optional if needed
 
     class Meta:
         verbose_name = "OAK tasarrufidagi jurnalda maqola chop etganligi"
@@ -136,17 +412,54 @@ class OAKJurnaliMaqola(models.Model):
     def __str__(self):
         return f"{self.user.username} - OAK maqola"
 
+    def clean(self):
+        # Ensure that the score does not exceed max_score and is non-negative
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score < 0 or self.score > self.max_score:
+                raise ValidationError(f"Baholash 0.0 va {self.max_score} oralig'ida bo'lishi kerak.")
+
+    def save(self, *args, **kwargs):
+        """
+        Custom save method to adjust max_score based on the score value
+        before saving the model instance.
+        """
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            # Subtract score from max_score if the score is within valid range
+            if self.score <= self.max_score:
+                self.max_score -= self.score
+
+        self.clean()  # Ensure validation is called before saving
+        super().save(*args, **kwargs)
+
 
 # 3. Scopus, Web of Science va Google Scholar h-indeksiga egaligi
 class HIndex(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name="Foydalanuvchi")
     maqola = models.FileField(
         upload_to='h_indeks_files/',
         verbose_name="Scopus, Web of Science va Google Scholar h-indeksiga egaligi"
     )
     link = models.URLField(verbose_name="H-indeks hujjatiga havola")
-    score = models.DecimalField(null=True, blank=True, verbose_name="Baholash",max_digits=2,decimal_places=1,validators=[MaxValueValidator(5.00)])
-    izoh = models.TextField()
+    score = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Baholash",
+        max_digits=3,  # Adjusted to accommodate values like 5.0
+        decimal_places=1,
+        validators=[MaxValueValidator(5.0), MinValueValidator(0.0)]
+    )
+    max_score = models.DecimalField(
+        max_digits=3,
+        decimal_places=1,
+        default=Decimal('5.0'),
+        verbose_name="Maksimal Baho",
+        editable=False
+    )
+    izoh = models.TextField(blank=True, null=True)  # Made optional if needed
 
     class Meta:
         verbose_name = "Scopus, Web of Science va Google Scholar h-indeksiga egaligi"
@@ -155,17 +468,54 @@ class HIndex(models.Model):
     def __str__(self):
         return f"{self.user.username} - H-indeks hujjat"
 
+    def clean(self):
+        # Validate that score does not exceed max_score and is non-negative
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score < 0 or self.score > self.max_score:
+                raise ValidationError(f"Baholash 0.0 va {self.max_score} oralig'ida bo'lishi kerak.")
+
+    def save(self, *args, **kwargs):
+        """
+        Custom save method to adjust max_score based on the score value
+        before saving the model instance.
+        """
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            # Subtract score from max_score if the score is within valid range
+            if self.score <= self.max_score:
+                self.max_score -= self.score
+
+        self.clean()  # Ensure validation is called before saving
+        super().save(*args, **kwargs)
+
 
 # 4. Xalqaro va Respublika konferensiyalarida ma'ruza
 class KonferensiyaMaqola(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name="Foydalanuvchi")
     maqola = models.FileField(
         upload_to='konferensiya_maqolalari_files/',
         verbose_name="Xalqaro va Respublika konferensiyalaridagi ma'ruza"
     )
     link = models.URLField(verbose_name="Ma'ruzaga havola")
-    score = models.DecimalField(null=True, blank=True, verbose_name="Baholash",max_digits=2,decimal_places=1,validators=[MaxValueValidator(2.00)])
-    izoh = models.TextField()
+    score = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Baholash",
+        max_digits=3,  # Adjusted to accommodate values like 2.0
+        decimal_places=1,
+        validators=[MaxValueValidator(2.0), MinValueValidator(0.0)]
+    )
+    max_score = models.DecimalField(
+        max_digits=3,
+        decimal_places=1,
+        default=Decimal('2.0'),
+        verbose_name="Maksimal Baho",
+        editable=False
+    )
+    izoh = models.TextField(blank=True, null=True)  # Made optional if needed
 
     class Meta:
         verbose_name = "Xalqaro va Respublika konferensiyalarida ma'ruza"
@@ -174,16 +524,52 @@ class KonferensiyaMaqola(models.Model):
     def __str__(self):
         return f"{self.user.username} - Konferensiya ma'ruza"
 
+    def clean(self):
+        # Ensure that the score does not exceed max_score and is non-negative
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score < 0 or self.score > self.max_score:
+                raise ValidationError(f"Baholash 0.0 va {self.max_score} oralig'ida bo'lishi kerak.")
+
+    def save(self, *args, **kwargs):
+        """
+        Custom save method to adjust max_score based on the score value
+        before saving the model instance.
+        """
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            # Subtract score from max_score if the score is within valid range
+            if self.score <= self.max_score:
+                self.max_score -= self.score
+
+        self.clean()  # Ensure validation is called before saving
+        super().save(*args, **kwargs)
 
 # 5. Loyiha tayyorlash
 class LoyihalarTayyorlash(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name="Foydalanuvchi")
     maqola = models.FileField(
         upload_to='loyihalar_tayyorlash_files/',
         verbose_name="Loyiha tayyorlash"
     )
-    score = models.DecimalField(null=True, blank=True, verbose_name="Baholash",max_digits=2,decimal_places=1,validators=[MaxValueValidator(5.00)])
-    izoh = models.TextField()
+    score = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Baholash",
+        max_digits=3,  # Adjusted to accommodate values like 5.0
+        decimal_places=1,
+        validators=[MaxValueValidator(5.0), MinValueValidator(0.0)]
+    )
+    max_score = models.DecimalField(
+        max_digits=3,
+        decimal_places=1,
+        default=Decimal('5.0'),
+        verbose_name="Maksimal Baho",
+        editable=False
+    )
+    izoh = models.TextField(blank=True, null=True)  # Made optional if needed
 
     class Meta:
         verbose_name = "Loyiha tayyorlash"
@@ -192,16 +578,53 @@ class LoyihalarTayyorlash(models.Model):
     def __str__(self):
         return f"{self.user.username} - Loyiha"
 
+    def clean(self):
+        # Ensure that the score does not exceed max_score and is non-negative
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score < 0 or self.score > self.max_score:
+                raise ValidationError(f"Baholash 0.0 va {self.max_score} oralig'ida bo'lishi kerak.")
+
+    def save(self, *args, **kwargs):
+        """
+        Custom save method to adjust max_score based on the score value
+        before saving the model instance.
+        """
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            # Subtract score from max_score if the score is within valid range
+            if self.score <= self.max_score:
+                self.max_score -= self.score
+
+        self.clean()  # Ensure validation is called before saving
+        super().save(*args, **kwargs)
+
 
 # 6. Ilmiy loyihalarni moliyalashtirish
 class LoyihaMoliya(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name="Foydalanuvchi")
     maqola = models.FileField(
         upload_to='loyiha_moliya_files/',
         verbose_name="Ilmiy loyihalarni moliyalashtirish"
     )
-    score = models.DecimalField(null=True, blank=True, verbose_name="Baholash",max_digits=2,decimal_places=1,validators=[MaxValueValidator(6.00)])
-    izoh = models.TextField()
+    score = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Baholash",
+        max_digits=3,  # Adjusted to accommodate values like 6.0
+        decimal_places=1,
+        validators=[MaxValueValidator(6.0), MinValueValidator(0.0)]
+    )
+    max_score = models.DecimalField(
+        max_digits=3,
+        decimal_places=1,
+        default=Decimal('6.0'),
+        verbose_name="Maksimal Baho",
+        editable=False
+    )
+    izoh = models.TextField(blank=True, null=True)  # Made optional if needed
 
     class Meta:
         verbose_name = "Ilmiy loyihalarni moliyalashtirish"
@@ -210,16 +633,53 @@ class LoyihaMoliya(models.Model):
     def __str__(self):
         return f"{self.user.username} - Loyiha moliyalashtirish"
 
+    def clean(self):
+        # Ensure that the score does not exceed max_score and is non-negative
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score < 0 or self.score > self.max_score:
+                raise ValidationError(f"Baholash 0.0 va {self.max_score} oralig'ida bo'lishi kerak.")
+
+    def save(self, *args, **kwargs):
+        """
+        Custom save method to adjust max_score based on the score value
+        before saving the model instance.
+        """
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            # Subtract score from max_score if the score is within valid range
+            if self.score <= self.max_score:
+                self.max_score -= self.score
+
+        self.clean()  # Ensure validation is called before saving
+        super().save(*args, **kwargs)
+
 
 # 7. AKT dasturlari va elektron ma'lumotlar bazalari guvohnomalari
 class AKTDasturlar(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name="Foydalanuvchi")
     maqola = models.FileField(
         upload_to='akt_dasturlar_guvohnoma_files/',
         verbose_name="AKT dasturlari va elektron ma'lumotlar bazalari guvohnomalari"
     )
-    score = models.DecimalField(null=True, blank=True, verbose_name="Baholash",max_digits=2,decimal_places=1,validators=[MaxValueValidator(3.00)])
-    izoh = models.TextField()
+    score = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Baholash",
+        max_digits=3,  # Adjusted to accommodate values like 3.0
+        decimal_places=1,
+        validators=[MaxValueValidator(3.0), MinValueValidator(0.0)]
+    )
+    max_score = models.DecimalField(
+        max_digits=3,
+        decimal_places=1,
+        default=Decimal('3.0'),
+        verbose_name="Maksimal Baho",
+        editable=False
+    )
+    izoh = models.TextField(blank=True, null=True)  # Made optional if needed
 
     class Meta:
         verbose_name = "AKT dasturlari va elektron ma'lumotlar bazalari uchun guvohnoma"
@@ -228,16 +688,53 @@ class AKTDasturlar(models.Model):
     def __str__(self):
         return f"{self.user.username} - AKT guvohnoma"
 
+    def clean(self):
+        # Ensure that the score does not exceed max_score and is non-negative
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score < 0 or self.score > self.max_score:
+                raise ValidationError(f"Baholash 0.0 va {self.max_score} oralig'ida bo'lishi kerak.")
+
+    def save(self, *args, **kwargs):
+        """
+        Custom save method to adjust max_score based on the score value
+        before saving the model instance.
+        """
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            # Subtract score from max_score if the score is within valid range
+            if self.score <= self.max_score:
+                self.max_score -= self.score
+
+        self.clean()  # Ensure validation is called before saving
+        super().save(*args, **kwargs)
+
 
 # 8. Talaba ilmiy faoliyati
 class TalabaIlmiyFaoliyati(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name="Foydalanuvchi")
     maqola = models.FileField(
         upload_to='talaba_ilmiy_faoliyati_files/',
         verbose_name="Talabaning ilmiy faoliyati"
     )
-    score = models.DecimalField(null=True, blank=True, verbose_name="Baholash",max_digits=2,decimal_places=1,validators=[MaxValueValidator(5.00)])
-    izoh = models.TextField()
+    score = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Baholash",
+        max_digits=3,  # Adjusted to accommodate values like 5.0
+        decimal_places=1,
+        validators=[MaxValueValidator(5.0), MinValueValidator(0.0)]
+    )
+    max_score = models.DecimalField(
+        max_digits=3,
+        decimal_places=1,
+        default=Decimal('5.0'),
+        verbose_name="Maksimal Baho",
+        editable=False
+    )
+    izoh = models.TextField(blank=True, null=True)  # Made optional if needed
 
     class Meta:
         verbose_name = "Talaba ilmiy faoliyati"
@@ -246,18 +743,54 @@ class TalabaIlmiyFaoliyati(models.Model):
     def __str__(self):
         return f"{self.user.username} - Talaba ilmiy faoliyati"
 
+    def clean(self):
+        # Ensure that the score does not exceed max_score and is non-negative
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score < 0 or self.score > self.max_score:
+                raise ValidationError(f"Baholash 0.0 va {self.max_score} oralig'ida bo'lishi kerak.")
+
+    def save(self, *args, **kwargs):
+        """
+        Custom save method to adjust max_score based on the score value
+        before saving the model instance.
+        """
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            # Subtract score from max_score if the score is within valid range
+            if self.score <= self.max_score:
+                self.max_score -= self.score
+
+        self.clean()  # Ensure validation is called before saving
+        super().save(*args, **kwargs)
 
 
 #######################################################################
 # 9. Tarbiyaviy tadbirlar
 class TarbiyaTadbirlar(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name="Foydalanuvchi")
     maqola = models.FileField(
         upload_to='tarbiya_tadbirlar_files/',
         verbose_name="Talabalar bilan tarbiyaviy ish bo'yicha tadbir"
-        )
-    score = models.DecimalField(null=True, blank=True, verbose_name="Baholash",max_digits=2,decimal_places=1,validators=[MaxValueValidator(3.00)])
-    izoh = models.TextField()
+    )
+    score = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Baholash",
+        max_digits=3,  # Adjusted to accommodate values like 3.0
+        decimal_places=1,
+        validators=[MaxValueValidator(3.0), MinValueValidator(0.0)]
+    )
+    max_score = models.DecimalField(
+        max_digits=3,
+        decimal_places=1,
+        default=Decimal('3.0'),
+        verbose_name="Maksimal Baho",
+        editable=False
+    )
+    izoh = models.TextField(blank=True, null=True)  # Made optional if needed
 
     class Meta:
         verbose_name = "Tarbiya tadbiri"
@@ -266,30 +799,107 @@ class TarbiyaTadbirlar(models.Model):
     def __str__(self):
         return f"{self.user.username} - Tarbiyaviy ish tadbiri"
 
+    def clean(self):
+        # Ensure that the score does not exceed max_score and is non-negative
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score < 0 or self.score > self.max_score:
+                raise ValidationError(f"Baholash 0.0 va {self.max_score} oralig'ida bo'lishi kerak.")
+
+    def save(self, *args, **kwargs):
+        """
+        Custom save method to adjust max_score based on the score value
+        before saving the model instance.
+        """
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            # Subtract score from max_score if the score is within valid range
+            if self.score <= self.max_score:
+                self.max_score -= self.score
+
+        self.clean()  # Ensure validation is called before saving
+        super().save(*args, **kwargs)
+
 
 # 10. Darstdan tashqari tadbirlar
 class DarstanTashqariTadbirlar(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    maqola = models.FileField(upload_to='darsdan_tashqari_files/',verbose_name="Darsdan tashqari madaniy va ma'rifiy tadbir")
-    score = models.DecimalField(null=True, blank=True, verbose_name="Baholash",max_digits=2,decimal_places=1,validators=[MaxValueValidator(4.00)])
-    izoh = models.TextField()
+    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name="Foydalanuvchi")
+    maqola = models.FileField(
+        upload_to='darsdan_tashqari_files/',
+        verbose_name="Darsdan tashqari madaniy va ma'rifiy tadbir"
+    )
+    score = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Baholash",
+        max_digits=3,  # Adjusted to accommodate values like 4.0
+        decimal_places=1,
+        validators=[MaxValueValidator(4.0), MinValueValidator(0.0)]
+    )
+    max_score = models.DecimalField(
+        max_digits=3,
+        decimal_places=1,
+        default=Decimal('4.0'),
+        verbose_name="Maksimal Baho",
+        editable=False
+    )
+    izoh = models.TextField(blank=True, null=True)  # Made optional if needed
 
     class Meta:
         verbose_name = "Darsdan tashqari tadbir"
         verbose_name_plural = "Darsdan tashqari tadbirlar"
 
     def __str__(self):
-        return f"{self.user.username} - Darstdan tashqari tadbir"
+        return f"{self.user.username} - Darsdan tashqari tadbir"
 
+    def clean(self):
+        # Ensure that the score does not exceed max_score and is non-negative
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score < 0 or self.score > self.max_score:
+                raise ValidationError(f"Baholash 0.0 va {self.max_score} oralig'ida bo'lishi kerak.")
+
+    def save(self, *args, **kwargs):
+        """
+        Custom save method to adjust max_score based on the score value
+        before saving the model instance.
+        """
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            # Subtract score from max_score if the score is within valid range
+            if self.score <= self.max_score:
+                self.max_score -= self.score
+
+        self.clean()  # Ensure validation is called before saving
+        super().save(*args, **kwargs)
 
 # 11. Talabalar turar joyidagi tadbirlar
 class TalabalarTurarJoyTadbirlar(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name="Foydalanuvchi")
     maqola = models.FileField(
         upload_to='talabalar_ttj_tadbirlar_files/',
-        verbose_name="Talabalar turar joyidagi madaniy va ma'rifiy tadbir")
-    score = models.DecimalField(null=True, blank=True, verbose_name="Baholash",max_digits=2,decimal_places=1,validators=[MaxValueValidator(3.00)])
-    izoh = models.TextField()
+        verbose_name="Talabalar turar joyidagi madaniy va ma'rifiy tadbir"
+    )
+    score = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Baholash",
+        max_digits=3,  # Adjusted to accommodate values like 3.0
+        decimal_places=1,
+        validators=[MaxValueValidator(3.0), MinValueValidator(0.0)]
+    )
+    max_score = models.DecimalField(
+        max_digits=3,
+        decimal_places=1,
+        default=Decimal('3.0'),
+        verbose_name="Maksimal Baho",
+        editable=False
+    )
+    izoh = models.TextField(blank=True, null=True)  # Made optional if needed
 
     class Meta:
         verbose_name = "Talabalar turar joyi tadbiri"
@@ -298,13 +908,52 @@ class TalabalarTurarJoyTadbirlar(models.Model):
     def __str__(self):
         return f"{self.user.username} - Talabalar turar joyi tadbiri"
 
+    def clean(self):
+        # Ensure that the score does not exceed max_score and is non-negative
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score < 0 or self.score > self.max_score:
+                raise ValidationError(f"Baholash 0.0 va {self.max_score} oralig'ida bo'lishi kerak.")
+
+    def save(self, *args, **kwargs):
+        """
+        Custom save method to adjust max_score based on the score value
+        before saving the model instance.
+        """
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            # Subtract score from max_score if the score is within valid range
+            if self.score <= self.max_score:
+                self.max_score -= self.score
+
+        self.clean()  # Ensure validation is called before saving
+        super().save(*args, **kwargs)
 
 # 12. Talabalar ota-onalari bilan ishlash
 class OtaOnalarIshlash(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    maqola = models.FileField(upload_to='ota_onalar_bilan_ishlash_field/',verbose_name="Talabalar ota-onalari bilan ishlash")
-    score = models.DecimalField(null=True, blank=True, verbose_name="Baholash",max_digits=2,decimal_places=1,validators=[MaxValueValidator(3.00)])
-    izoh = models.TextField()
+    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name="Foydalanuvchi")
+    maqola = models.FileField(
+        upload_to='ota_onalar_bilan_ishlash_field/',
+        verbose_name="Talabalar ota-onalari bilan ishlash"
+    )
+    score = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Baholash",
+        max_digits=3,  # Adjusted to accommodate values like 3.0
+        decimal_places=1,
+        validators=[MaxValueValidator(3.0), MinValueValidator(0.0)]
+    )
+    max_score = models.DecimalField(
+        max_digits=3,
+        decimal_places=1,
+        default=Decimal('3.0'),
+        verbose_name="Maksimal Baho",
+        editable=False
+    )
+    izoh = models.TextField(blank=True, null=True)  # Made optional if needed
 
     class Meta:
         verbose_name = "Ota-onalar bilan ishlash"
@@ -313,12 +962,48 @@ class OtaOnalarIshlash(models.Model):
     def __str__(self):
         return f"{self.user.username} - Ota-onalar bilan ish"
 
+    def clean(self):
+        # Ensure that the score does not exceed max_score and is non-negative
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score < 0 or self.score > self.max_score:
+                raise ValidationError(f"Baholash 0.0 va {self.max_score} oralig'ida bo'lishi kerak.")
+
+    def save(self, *args, **kwargs):
+        """
+        Custom save method to adjust max_score based on the score value
+        before saving the model instance.
+        """
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            # Subtract score from max_score if the score is within valid range
+            if self.score <= self.max_score:
+                self.max_score -= self.score
+
+        self.clean()  # Ensure validation is called before saving
+        super().save(*args, **kwargs)
 
 # 13. Axborot va murobbiyslik soati
 class AxborotMurobbiylikSoat(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE)
-    score = models.DecimalField(null=True, blank=True, verbose_name="Baholash",max_digits=2,decimal_places=1,validators=[MaxValueValidator(3.00)])
-    izoh = models.TextField()
+    user = models.OneToOneField(User, on_delete=models.CASCADE, verbose_name="Foydalanuvchi")
+    score = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Baholash",
+        max_digits=3,  # Adjusted to accommodate values like 3.0
+        decimal_places=1,
+        validators=[MaxValueValidator(3.0), MinValueValidator(0.0)]
+    )
+    max_score = models.DecimalField(
+        max_digits=3,
+        decimal_places=1,
+        default=Decimal('3.0'),
+        verbose_name="Maksimal Baho",
+        editable=False
+    )
+    izoh = models.TextField(blank=True, null=True)  # Made optional if needed
 
     class Meta:
         verbose_name = "Axborot va murobbiyslik soati"
@@ -327,14 +1012,51 @@ class AxborotMurobbiylikSoat(models.Model):
     def __str__(self):
         return f"{self.user.username} - Axborot va murobbiyslik soati"
 
+    def clean(self):
+        # Ensure that the score does not exceed max_score and is non-negative
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score < 0 or self.score > self.max_score:
+                raise ValidationError(f"Baholash 0.0 va {self.max_score} oralig'ida bo'lishi kerak.")
 
+    def save(self, *args, **kwargs):
+        """
+        Custom save method to adjust max_score based on the score value
+        before saving the model instance.
+        """
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            # Subtract score from max_score if the score is within the valid range
+            if self.score <= self.max_score:
+                self.max_score -= self.score
+
+        self.clean()  # Ensure validation is called before saving
+        super().save(*args, **kwargs)
 # 14. 5 muhim tashabbus doirasida ishlari
 class MuhimTashabbuslarIshlari(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    maqola = models.FileField(upload_to='muhim_tashabbus_field/',
-                              verbose_name="5 muhim tashabbus doirasidagi ishlari")
-    score = models.DecimalField(null=True, blank=True, verbose_name="Baholash",max_digits=2,decimal_places=1,validators=[MaxValueValidator(3.00)])
-    izoh = models.TextField()
+    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name="Foydalanuvchi")
+    maqola = models.FileField(
+        upload_to='muhim_tashabbus_field/',
+        verbose_name="5 muhim tashabbus doirasidagi ishlari"
+    )
+    score = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Baholash",
+        max_digits=3,  # Adjusted to accommodate values like 3.0
+        decimal_places=1,
+        validators=[MaxValueValidator(3.0), MinValueValidator(0.0)]
+    )
+    max_score = models.DecimalField(
+        max_digits=3,
+        decimal_places=1,
+        default=Decimal('3.0'),
+        verbose_name="Maksimal Baho",
+        editable=False
+    )
+    izoh = models.TextField(blank=True, null=True)  # Made optional if needed
 
     class Meta:
         verbose_name = "5 muhim tashabbus ishi"
@@ -343,13 +1065,53 @@ class MuhimTashabbuslarIshlari(models.Model):
     def __str__(self):
         return f"{self.user.username} - 5 muhim tashabbus ishi"
 
+    def clean(self):
+        # Ensure that the score does not exceed max_score and is non-negative
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score < 0 or self.score > self.max_score:
+                raise ValidationError(f"Baholash 0.0 va {self.max_score} oralig'ida bo'lishi kerak.")
+
+    def save(self, *args, **kwargs):
+        """
+        Custom save method to adjust max_score based on the score value
+        before saving the model instance.
+        """
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            # Subtract score from max_score if the score is within the valid range
+            if self.score <= self.max_score:
+                self.max_score -= self.score
+
+        self.clean()  # Ensure validation is called before saving
+        super().save(*args, **kwargs)
+
 
 # 15. Bir ziyoli - bir mahallaga ma'naviy homiy
 class BirZiyoliBirMahalla(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    maqola = models.FileField(upload_to='birziyoli_birmahalla_field/',verbose_name="Bir ziyoli – bir mahallaga ma'naviy homiy ishi")
-    score = models.DecimalField(null=True, blank=True, verbose_name="Baholash",max_digits=2,decimal_places=1,validators=[MaxValueValidator(5.00)])
-    izoh = models.TextField()
+    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name="Foydalanuvchi")
+    maqola = models.FileField(
+        upload_to='birziyoli_birmahalla_field/',
+        verbose_name="Bir ziyoli – bir mahallaga ma'naviy homiy ishi"
+    )
+    score = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Baholash",
+        max_digits=3,  # Adjusted to accommodate values like 5.0
+        decimal_places=1,
+        validators=[MaxValueValidator(5.0), MinValueValidator(0.0)]
+    )
+    max_score = models.DecimalField(
+        max_digits=3,
+        decimal_places=1,
+        default=Decimal('5.0'),
+        verbose_name="Maksimal Baho",
+        editable=False
+    )
+    izoh = models.TextField(blank=True, null=True)  # Made optional if needed
 
     class Meta:
         verbose_name = "Bir ziyoli – bir mahallaga ma'naviy homiy"
@@ -358,81 +1120,251 @@ class BirZiyoliBirMahalla(models.Model):
     def __str__(self):
         return f"{self.user.username} - Bir ziyoli – bir mahallaga ma'naviy homiy ishi"
 
+    def clean(self):
+        # Ensure that the score does not exceed max_score and is non-negative
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score < 0 or self.score > self.max_score:
+                raise ValidationError(f"Baholash 0.0 va {self.max_score} oralig'ida bo'lishi kerak.")
+
+    def save(self, *args, **kwargs):
+        """
+        Custom save method to adjust max_score based on the score value
+        before saving the model instance.
+        """
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            # Subtract score from max_score if the score is within the valid range
+            if self.score <= self.max_score:
+                self.max_score -= self.score
+
+        self.clean()  # Ensure validation is called before saving
+        super().save(*args, **kwargs)
+
 
 # 1. Darslik yoki o‘quv qo‘llanma tayyorlash va nashr qilish
 class DarslikYokiQollanma(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)  # Foydalanuvchiga bog'langan
+    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name="Foydalanuvchi")
     maqola = models.FileField(
         upload_to='darslik_yoki_qollanma_files/',
         verbose_name="Darslik yoki o‘quv qo‘llanma tayyorlash va nashr qilish"
     )
     link = models.URLField(verbose_name="Maqolaga havola")
-    score = models.DecimalField(null=True, blank=True, verbose_name="Baholash",max_digits=3,decimal_places=1,validators=[MaxValueValidator(50.00)])  # Superuser reytingi
-    izoh = models.TextField()
+    score = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Baholash",
+        max_digits=4,  # Adjusted to accommodate values up to 50.0
+        decimal_places=1,
+        validators=[MaxValueValidator(50.0), MinValueValidator(0.0)]
+    )
+    max_score = models.DecimalField(
+        max_digits=4,
+        decimal_places=1,
+        default=Decimal('50.0'),
+        verbose_name="Maksimal Baho",
+        editable=False
+    )
+    izoh = models.TextField(blank=True, null=True)  # Made optional if needed
 
     class Meta:
         verbose_name = "Darslik yoki o‘quv qo‘llanma"
         verbose_name_plural = "Darsliklar yoki o‘quv qo‘llanmalar"
 
     def __str__(self):
-        return f"{self.user.username}"
+        return f"{self.user.username} - Darslik yoki o‘quv qo‘llanma"
+
+    def clean(self):
+        # Ensure that the score does not exceed max_score and is non-negative
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score < 0 or self.score > self.max_score:
+                raise ValidationError(f"Baholash 0.0 va {self.max_score} oralig'ida bo'lishi kerak.")
+
+    def save(self, *args, **kwargs):
+        """
+        Custom save method to adjust max_score based on the score value
+        before saving the model instance.
+        """
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            # Subtract score from max_score if the score is within the valid range
+            if self.score <= self.max_score:
+                self.max_score -= self.score
+
+        self.clean()  # Ensure validation is called before saving
+        super().save(*args, **kwargs)
 
 
 # 2. PhD yoki DSc dissertatsiyani himoya qilish
 class DissertationHimoya(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)  # Foydalanuvchiga bog'langan
+    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name="Foydalanuvchi")
     maqola = models.FileField(
         upload_to='dissertatsiya_himoya_files/',
         verbose_name="PhD yoki DSc dissertatsiyani himoya qilish"
     )
     link = models.URLField(verbose_name="Maqolaga havola")
-    score = models.DecimalField(null=True, blank=True, verbose_name="Baholash",max_digits=4,decimal_places=1,validators=[MaxValueValidator(100.00)])  # Superuser reytingi
-    izoh = models.TextField()
+    score = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Baholash",
+        max_digits=5,  # Adjusted to accommodate values up to 100.0
+        decimal_places=1,
+        validators=[MaxValueValidator(100.0), MinValueValidator(0.0)]
+    )
+    max_score = models.DecimalField(
+        max_digits=5,
+        decimal_places=1,
+        default=Decimal('100.0'),
+        verbose_name="Maksimal Baho",
+        editable=False
+    )
+    izoh = models.TextField(blank=True, null=True)  # Made optional if needed
 
     class Meta:
         verbose_name = "Dissertatsiyani himoya qilish"
         verbose_name_plural = "Dissertatsiyalar himoyalari"
 
     def __str__(self):
-        return f"{self.user.username}"
+        return f"{self.user.username} - Dissertatsiyani himoya qilish"
 
+    def clean(self):
+        # Ensure that the score does not exceed max_score and is non-negative
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score < 0 or self.score > self.max_score:
+                raise ValidationError(f"Baholash 0.0 va {self.max_score} oralig'ida bo'lishi kerak.")
+
+    def save(self, *args, **kwargs):
+        """
+        Custom save method to adjust max_score based on the score value
+        before saving the model instance.
+        """
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            # Subtract score from max_score if the score is within the valid range
+            if self.score <= self.max_score:
+                self.max_score -= self.score
+
+        self.clean()  # Ensure validation is called before saving
+        super().save(*args, **kwargs)
 
 # 3. Ilmiy rahbarlik
 class IlmiyRahbarlik(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)  # Foydalanuvchiga bog'langan
+    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name="Foydalanuvchi")
     maqola = models.FileField(
         upload_to='ilmiy_rahbarlik_files/',
         verbose_name="Ilmiy rahbarlik"
     )
     link = models.URLField(verbose_name="Maqolaga havola")
-    score = models.DecimalField(null=True, blank=True, verbose_name="Baholash",max_digits=4,decimal_places=1,validators=[MaxValueValidator(100.00)])  # Superuser reytingi
-    izoh = models.TextField()
+    score = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Baholash",
+        max_digits=5,  # Adjusted to accommodate values up to 100.0
+        decimal_places=1,
+        validators=[MaxValueValidator(100.0), MinValueValidator(0.0)]
+    )
+    max_score = models.DecimalField(
+        max_digits=5,
+        decimal_places=1,
+        default=Decimal('100.0'),
+        verbose_name="Maksimal Baho",
+        editable=False
+    )
+    izoh = models.TextField(blank=True, null=True)  # Made optional if needed
 
     class Meta:
         verbose_name = "Ilmiy rahbarlik"
         verbose_name_plural = "Ilmiy rahbarliklar"
 
     def __str__(self):
-        return f"{self.user.username}"
+        return f"{self.user.username} - Ilmiy rahbarlik"
+
+    def clean(self):
+        # Ensure that the score does not exceed max_score and is non-negative
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score < 0 or self.score > self.max_score:
+                raise ValidationError(f"Baholash 0.0 va {self.max_score} oralig'ida bo'lishi kerak.")
+
+    def save(self, *args, **kwargs):
+        """
+        Custom save method to adjust max_score based on the score value
+        before saving the model instance.
+        """
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            # Subtract score from max_score if the score is within the valid range
+            if self.score <= self.max_score:
+                self.max_score -= self.score
+
+        self.clean()  # Ensure validation is called before saving
+        super().save(*args, **kwargs)
 
 
 # 4. Xorijda malaka oshirish yoki stajirovka
 class HorijdaMalakaOshirish(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)  # Foydalanuvchiga bog'langan
+    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name="Foydalanuvchi")
     maqola = models.FileField(
         upload_to='xorijda_malaka_oshirish_files/',
         verbose_name="Xorijda malaka oshirish yoki stajirovka"
     )
     link = models.URLField(verbose_name="Maqolaga havola")
-    score = models.DecimalField(null=True, blank=True, verbose_name="Baholash",max_digits=4,decimal_places=1,validators=[MaxValueValidator(100.00)])  # Superuser reytingi
-    izoh = models.TextField()
+    score = models.DecimalField(
+        null=True,
+        blank=True,
+        verbose_name="Baholash",
+        max_digits=5,  # Adjusted to accommodate values up to 100.0
+        decimal_places=1,
+        validators=[MaxValueValidator(100.0), MinValueValidator(0.0)]
+    )
+    max_score = models.DecimalField(
+        max_digits=5,
+        decimal_places=1,
+        default=Decimal('100.0'),
+        verbose_name="Maksimal Baho",
+        editable=False
+    )
+    izoh = models.TextField(blank=True, null=True)  # Made optional if needed
 
     class Meta:
         verbose_name = "Xorijda malaka oshirish"
         verbose_name_plural = "Xorijda malaka oshirishlar"
 
     def __str__(self):
-        return f"{self.user.username}"
+        return f"{self.user.username} - Xorijda malaka oshirish"
+
+    def clean(self):
+        # Ensure that the score does not exceed max_score and is non-negative
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            if self.score < 0 or self.score > self.max_score:
+                raise ValidationError(f"Baholash 0.0 va {self.max_score} oralig'ida bo'lishi kerak.")
+
+    def save(self, *args, **kwargs):
+        """
+        Custom save method to adjust max_score based on the score value
+        before saving the model instance.
+        """
+        if self.score is not None:
+            if isinstance(self.score, str):
+                self.score = Decimal(self.score)
+            # Subtract score from max_score if the score is within the valid range
+            if self.score <= self.max_score:
+                self.max_score -= self.score
+
+        self.clean()  # Ensure validation is called before saving
+        super().save(*args, **kwargs)
  
 
 
